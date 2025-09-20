@@ -7,7 +7,7 @@ import requests
 # Config
 # -----------------------------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Render এর Environment Variables এ রাখবেন
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Render app URL + /<BOT_TOKEN>
+WEBHOOK_URL = os.environ.get("https://image-to-text-ocr-bot.onrender.com")  # Render app URL + /<BOT_TOKEN>
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # OCR রিডার
@@ -93,4 +93,5 @@ def set_webhook():
 
 if __name__ == "__main__":
     set_webhook()
+
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
