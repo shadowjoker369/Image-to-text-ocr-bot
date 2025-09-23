@@ -1,97 +1,71 @@
-import os
-import easyocr
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import requests
+import os
+import openai
+from flask_cors import CORS   # <-- নতুন ইমপোর্ট
 
-# -----------------------------
-# Config
-# -----------------------------
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Render এর Environment Variables এ রাখবেন
-WEBHOOK_URL = os.environ.get("https://image-to-text-ocr-bot.onrender.com")  # Render app URL + /<BOT_TOKEN>
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-# OCR রিডার
-reader = easyocr.Reader(['en', 'bn'], gpu=False)
-
-# Flask app
 app = Flask(__name__)
+CORS(app)  # <-- CORS Allow করে দিলাম
 
-# -----------------------------
-# Telegram API হেল্পার ফাংশন
-# -----------------------------
-def send_message(chat_id, text):
-    url = f"{API_URL}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    requests.post(url, json=payload)
+# API Keys
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OCR_API_KEY = os.getenv("OCR_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
-# -----------------------------
-# Webhook Endpoint
-# -----------------------------
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    update = request.get_json()
+# ---------- Chatbot ----------
+@app.route("/chatbot", methods=["POST"])
+def chatbot():
+    data = request.json
+    user_input = data.get("message", "")
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": user_input}]
+        )
+        answer = response["choices"][0]["message"]["content"]
+        return jsonify({"response": answer})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    if "message" in update:
-        message = update["message"]
-        chat_id = message["chat"]["id"]
+# ---------- OCR ----------
+@app.route("/ocr", methods=["POST"])
+def ocr():
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
 
-        # যদি ছবি পাঠানো হয়
-        if "photo" in message:
-            file_id = message["photo"][-1]["file_id"]
-            file_info = requests.get(f"{API_URL}/getFile?file_id={file_id}").json()
-            file_path = file_info["result"]["file_path"]
+    file = request.files["file"]
+    try:
+        r = requests.post(
+            "https://api.ocr.space/parse/image",
+            files={"file": file},
+            data={"apikey": OCR_API_KEY}
+        )
+        result = r.json()
+        text = result["ParsedResults"][0]["ParsedText"]
+        return jsonify({"text": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-            # ছবি ডাউনলোড
-            file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-            img_path = "input.jpg"
-            img_data = requests.get(file_url).content
-            with open(img_path, "wb") as f:
-                f.write(img_data)
+# ---------- Translator ----------
+@app.route("/translate", methods=["POST"])
+def translate():
+    data = request.json
+    text = data.get("text", "")
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "user", "content": f"Translate between Bangla and English:\n{text}"}
+            ]
+        )
+        translated = response["choices"][0]["message"]["content"]
+        return jsonify({"translation": translated})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-            # OCR চালানো
-            result = reader.readtext(img_path)
-            extracted_text = "\n".join([d[1] for d in result])
-
-            if extracted_text.strip() == "":
-                send_message(chat_id, "⚠️ কোনো লেখা পাওয়া যায়নি। পরিষ্কার ছবি দিন।")
-            else:
-                formatted = f"""
-<b>📝 OCR RESULT</b>
-─────────────────────
-<pre>{extracted_text}</pre>
-─────────────────────
-👑 Admin: SHADOW JOKER  
-📢 Group: CYBER TEAM HELP  
-📧 Email: cyberteamhelp369@gmail.com  
-☎️ Contact: 01950178309
-"""
-                send_message(chat_id, formatted)
-
-        else:
-            send_message(chat_id, "📌 দয়া করে একটি ছবি পাঠান।")
-
-    return {"ok": True}
-
-# -----------------------------
-# Root Route
-# -----------------------------
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return "✅ OCR Bot is running!"
-
-# -----------------------------
-# Set Webhook (Run Once)
-# -----------------------------
-def set_webhook():
-    url = f"{API_URL}/setWebhook?url={WEBHOOK_URL}/{BOT_TOKEN}"
-    r = requests.get(url)
-    print(r.json())
+    return "AI Tools Backend by SHADOW JOKER is running!"
 
 if __name__ == "__main__":
-    set_webhook()
-
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
